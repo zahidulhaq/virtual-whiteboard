@@ -9,12 +9,14 @@ import { verifyToken, type AuthUser } from '../services/auth.js'
 import * as boards from '../services/boards.js'
 import type { BoardRole } from '../generated/prisma/enums.js'
 import { colorFor, presence } from './presence.js'
+import { TokenBucket } from './rateLimiter.js'
 
 interface SocketData {
   user: AuthUser
   color: string
   /** Boards this socket has joined, with the role it was granted. */
   boards: Map<string, BoardRole>
+  limits: { events: TokenBucket; realtime: TokenBucket }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,10 +47,22 @@ function toErrorMessage(err: unknown): string {
   return 'Internal server error'
 }
 
-/** Wraps a handler so validation/permission failures are reported through the ack. */
-function handler<T>(socket: AppSocket, name: string, fn: (input: T, ack: Ack) => Promise<void> | void) {
+/**
+ * Wraps a handler so validation/permission failures are reported through the ack.
+ * `limit` picks which token bucket the event draws from.
+ */
+function handler<T>(
+  socket: AppSocket,
+  name: string,
+  limit: keyof SocketData['limits'],
+  fn: (input: T, ack: Ack) => Promise<void> | void,
+) {
   return async (input: T, ack?: Ack) => {
     const reply: Ack = typeof ack === 'function' ? ack : () => {}
+    if (!socket.data.limits[limit].take()) {
+      reply({ ok: false, error: 'Rate limit exceeded' })
+      return
+    }
     try {
       await fn(input, reply)
     } catch (err) {
@@ -73,7 +87,7 @@ function registerHandlers(socket: AppSocket) {
 
   socket.on(
     'board:join',
-    handler(socket, 'board:join', async (input, ack) => {
+    handler(socket, 'board:join', 'events', async (input, ack) => {
       const { boardId } = joinSchema.parse(input)
       const role = await boards.requireRole(boardId, user.id)
       socket.data.boards.set(boardId, role)
@@ -86,7 +100,7 @@ function registerHandlers(socket: AppSocket) {
 
   socket.on(
     'board:leave',
-    handler(socket, 'board:leave', (input, ack) => {
+    handler(socket, 'board:leave', 'events', (input, ack) => {
       const { boardId } = joinSchema.parse(input)
       leaveBoard(socket, boardId)
       ack({ ok: true })
@@ -95,7 +109,7 @@ function registerHandlers(socket: AppSocket) {
 
   socket.on(
     'board:event',
-    handler(socket, 'board:event', async (input, ack) => {
+    handler(socket, 'board:event', 'events', async (input, ack) => {
       const { boardId, ...event } = boardEventSchema.parse(input)
       if (!socket.data.boards.has(boardId)) throw new HttpError(403, 'Join the board first')
       // Re-check against the database so a demotion takes effect immediately.
@@ -112,7 +126,7 @@ function registerHandlers(socket: AppSocket) {
   // In-progress strokes are broadcast but never persisted.
   socket.on(
     'board:draft',
-    handler(socket, 'board:draft', (input) => {
+    handler(socket, 'board:draft', 'realtime', (input) => {
       const { boardId, shape } = draftSchema.parse(input)
       const role = socket.data.boards.get(boardId)
       if (!role || !boards.canEdit(role)) return
@@ -122,7 +136,7 @@ function registerHandlers(socket: AppSocket) {
 
   socket.on(
     'cursor:move',
-    handler(socket, 'cursor:move', (input) => {
+    handler(socket, 'cursor:move', 'realtime', (input) => {
       const { boardId, x, y } = cursorSchema.parse(input)
       if (!socket.data.boards.has(boardId)) return
       socket.volatile
@@ -147,7 +161,17 @@ export function createSocketServer(httpServer: HttpServer) {
       const token = socket.handshake.auth?.token
       if (typeof token !== 'string') throw new HttpError(401, 'Missing token')
       const user = verifyToken(token)
-      socket.data = { user, color: colorFor(user.id), boards: new Map() } satisfies SocketData
+      socket.data = {
+        user,
+        color: colorFor(user.id),
+        boards: new Map(),
+        limits: {
+          // Committed shapes / joins: bursts of 40, ~15 per second sustained.
+          events: new TokenBucket(40, 15),
+          // Cursor + draft updates are throttled client-side to ~30/s.
+          realtime: new TokenBucket(120, 60),
+        },
+      } satisfies SocketData
       next()
     } catch (err) {
       next(new Error(toErrorMessage(err)))
