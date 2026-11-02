@@ -11,6 +11,8 @@ const schema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   /** When set, /metrics requires `Authorization: Bearer <token>`. */
   METRICS_TOKEN: z.string().min(16).optional(),
+  /** Number of reverse proxies in front of the API (used to resolve client IPs for rate limiting). */
+  TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   CORS_ORIGIN: z
     .string()
     .default('http://localhost:5173')

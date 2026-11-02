@@ -1,0 +1,49 @@
+# Production-like stack for local use: Postgres + API + Nginx-served frontend.
+#   docker compose up --build
+#   open http://localhost:8080
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: whiteboard
+      POSTGRES_PASSWORD: whiteboard
+      POSTGRES_DB: whiteboard
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whiteboard"]
+      interval: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: ./backend
+      target: migrate
+    environment:
+      DATABASE_URL: postgresql://whiteboard:whiteboard@db:5432/whiteboard
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+      target: runtime
+    environment:
+      DATABASE_URL: postgresql://whiteboard:whiteboard@db:5432/whiteboard
+      JWT_SECRET: ${JWT_SECRET:-local-compose-secret-change-me-0123456789}
+      CORS_ORIGIN: http://localhost:8080
+      LOG_LEVEL: info
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build: ./frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+
+volumes:
+  db-data:
