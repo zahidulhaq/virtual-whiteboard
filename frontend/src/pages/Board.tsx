@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { buildShapes } from '../board/boardState'
+import { exportBoardPng } from '../board/exportPng'
 import { Canvas } from '../board/Canvas'
 import { MembersPanel } from '../board/MembersPanel'
 import { PresenceBar } from '../board/PresenceBar'
@@ -175,6 +176,13 @@ export default function Board() {
 
         <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg">
           <PresenceBar users={session.presence} selfId={user!.id} />
+          <button
+            onClick={() => stageRef.current && exportBoardPng(stageRef.current, board?.name ?? 'whiteboard')}
+            title="Download the board as a PNG image"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Export
+          </button>
           <button
             onClick={() => setReplay((r) => (r === null ? session.events.length : null))}
             aria-pressed={replaying}
