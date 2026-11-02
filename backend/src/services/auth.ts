@@ -5,7 +5,8 @@ import { env } from '../config/env.js'
 import { conflict, unauthorized } from '../lib/errors.js'
 import { prisma } from '../lib/prisma.js'
 
-const BCRYPT_ROUNDS = 12
+// Low cost in tests keeps the suite fast; production uses 12.
+const BCRYPT_ROUNDS = env.NODE_ENV === 'test' ? 4 : 12
 // Compared against when the email is unknown so login timing doesn't reveal which emails exist.
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', BCRYPT_ROUNDS)
 
