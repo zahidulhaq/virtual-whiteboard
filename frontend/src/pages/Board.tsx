@@ -1,11 +1,13 @@
 import type Konva from 'konva'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/useAuth'
+import { buildShapes } from '../board/boardState'
 import { Canvas } from '../board/Canvas'
 import { MembersPanel } from '../board/MembersPanel'
 import { PresenceBar } from '../board/PresenceBar'
 import { RemoteCursors } from '../board/RemoteCursors'
+import { ReplayPanel } from '../board/ReplayPanel'
 import { Toolbar } from '../board/Toolbar'
 import { TOOLS, type Tool } from '../board/tools'
 import { useBoardSession, type SessionStatus } from '../board/useBoardSession'
@@ -36,6 +38,8 @@ export default function Board() {
   const [myShapes, setMyShapes] = useState<string[]>([])
   const [copied, setCopied] = useState(false)
   const [panel, setPanel] = useState<'members' | null>(null)
+  /** Number of events shown while replaying history; null when live. */
+  const [replay, setReplay] = useState<number | null>(null)
 
   const onAccessLost = useCallback(
     (reason: string) => navigate('/dashboard', { replace: true, state: { notice: reason } }),
@@ -44,7 +48,22 @@ export default function Board() {
 
   const session = useBoardSession({ boardId, token: token!, onAccessLost })
   const role = session.role ?? board?.role ?? null
-  const readOnly = role === 'VIEWER' || session.status !== 'ready'
+  const replaying = replay !== null
+  const canEdit = role !== 'VIEWER' && !replaying
+  const readOnly = !canEdit || session.status !== 'ready'
+  const activeTool: Tool = canEdit ? tool : 'hand'
+
+  const replayShapes = useMemo(
+    () => (replay === null ? null : buildShapes(session.events.slice(0, replay))),
+    [replay, session.events],
+  )
+  const visibleShapes = useMemo(() => [...(replayShapes ?? session.shapes).values()], [replayShapes, session.shapes])
+
+  const names = useMemo(() => {
+    const map = new Map(board?.members.map((m) => [m.id, m.name]))
+    for (const u of session.presence) map.set(u.userId, u.name)
+    return map
+  }, [board, session.presence])
 
   useEffect(() => {
     api
@@ -117,10 +136,10 @@ export default function Board() {
     <div className="relative h-screen w-screen overflow-hidden">
       <Canvas
         stageRef={stageRef}
-        shapes={[...session.shapes.values()]}
-        remoteDrafts={Object.values(session.drafts)}
+        shapes={visibleShapes}
+        remoteDrafts={replaying ? [] : Object.values(session.drafts)}
         readOnly={readOnly}
-        tool={role === 'VIEWER' ? 'hand' : tool}
+        tool={activeTool}
         color={color}
         strokeWidth={strokeWidth}
         view={view}
@@ -157,6 +176,14 @@ export default function Board() {
         <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg">
           <PresenceBar users={session.presence} selfId={user!.id} />
           <button
+            onClick={() => setReplay((r) => (r === null ? session.events.length : null))}
+            aria-pressed={replaying}
+            title="Replay board history"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700"
+          >
+            Replay
+          </button>
+          <button
             onClick={() => setPanel((p) => (p === 'members' ? null : 'members'))}
             aria-pressed={panel === 'members'}
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 aria-pressed:bg-slate-100"
@@ -180,10 +207,10 @@ export default function Board() {
 
       <div className="pointer-events-none absolute top-20 left-3">
         <Toolbar
-          tool={role === 'VIEWER' ? 'hand' : tool}
+          tool={activeTool}
           color={color}
           strokeWidth={strokeWidth}
-          readOnly={role === 'VIEWER'}
+          readOnly={!canEdit}
           canUndo={myShapes.some((id) => session.shapes.has(id))}
           onTool={setTool}
           onColor={setColor}
@@ -209,7 +236,19 @@ export default function Board() {
         </button>
       </div>
 
-      {role === 'VIEWER' && (
+      {replaying && (
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2">
+          <ReplayPanel
+            events={session.events}
+            position={Math.min(replay, session.events.length)}
+            onPositionChange={setReplay}
+            onClose={() => setReplay(null)}
+            names={names}
+          />
+        </div>
+      )}
+
+      {role === 'VIEWER' && !replaying && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-1.5 text-sm text-white shadow-lg">
           View only — ask the owner for edit access
         </div>
