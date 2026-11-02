@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { env } from '../config/env.js'
 import { HttpError } from '../lib/errors.js'
 import { logger } from '../lib/logger.js'
+import { boardEventsTotal, socketConnections } from '../lib/metrics.js'
 import { boardEventInputSchema, shapeSchema } from '../lib/shapes.js'
 import { verifyToken, type AuthUser } from '../services/auth.js'
 import * as boards from '../services/boards.js'
@@ -118,6 +119,7 @@ function registerHandlers(socket: AppSocket) {
       if (!boards.canEdit(role)) throw new HttpError(403, 'Viewers cannot edit this board')
 
       const saved = await boards.appendEvent(boardId, user.id, event)
+      boardEventsTotal.inc({ type: event.type })
       socket.to(room(boardId)).emit('board:event', saved)
       ack({ ok: true, event: saved })
     }),
@@ -180,6 +182,8 @@ export function createSocketServer(httpServer: HttpServer) {
 
   io.on('connection', (socket: AppSocket) => {
     logger.debug({ userId: socket.data.user.id, socketId: socket.id }, 'socket connected')
+    socketConnections.inc()
+    socket.on('disconnect', () => socketConnections.dec())
     registerHandlers(socket)
   })
 

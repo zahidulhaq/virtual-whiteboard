@@ -2,6 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import helmet from 'helmet'
 import { env } from './config/env.js'
+import { metricsMiddleware } from './lib/metrics.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { apiLimiter, authLimiter } from './middleware/rateLimit.js'
 import { requestLogger } from './middleware/requestLogger.js'
@@ -18,6 +19,7 @@ export function createApp() {
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }))
   app.use(express.json({ limit: '100kb' }))
   app.use(requestLogger)
+  app.use(metricsMiddleware)
 
   app.use(healthRouter)
   app.use('/api', apiLimiter)

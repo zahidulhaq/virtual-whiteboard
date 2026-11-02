@@ -9,6 +9,8 @@ const schema = z.object({
   DATABASE_POOL_SIZE: z.coerce.number().int().positive().default(10),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
+  /** When set, /metrics requires `Authorization: Bearer <token>`. */
+  METRICS_TOKEN: z.string().min(16).optional(),
   CORS_ORIGIN: z
     .string()
     .default('http://localhost:5173')
