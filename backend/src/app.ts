@@ -4,6 +4,7 @@ import helmet from 'helmet'
 import { env } from './config/env.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { requestLogger } from './middleware/requestLogger.js'
+import { authRouter } from './routes/auth.js'
 import { healthRouter } from './routes/health.js'
 
 export function createApp() {
@@ -17,6 +18,7 @@ export function createApp() {
   app.use(requestLogger)
 
   app.use(healthRouter)
+  app.use('/api/auth', authRouter)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
