@@ -1,0 +1,79 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BoardRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum BoardEventType {
+  SHAPE_ADD
+  SHAPE_DELETE
+  CLEAR
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  memberships  BoardMember[]
+  ownedBoards  Board[]
+  events       BoardEvent[]
+
+  @@map("users")
+}
+
+model Board {
+  id        String        @id @default(cuid())
+  name      String
+  roomCode  String        @unique
+  ownerId   String
+  owner     User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  members   BoardMember[]
+  events    BoardEvent[]
+
+  @@index([ownerId])
+  @@map("boards")
+}
+
+model BoardMember {
+  boardId  String
+  userId   String
+  role     BoardRole @default(EDITOR)
+  joinedAt DateTime  @default(now())
+  board    Board     @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, userId])
+  @@index([userId])
+  @@map("board_members")
+}
+
+/// Append-only log of board mutations. Replaying events in `seq` order
+/// reconstructs the board at any point in its history.
+model BoardEvent {
+  seq       BigInt         @id @default(autoincrement())
+  boardId   String
+  userId    String
+  type      BoardEventType
+  payload   Json
+  createdAt DateTime       @default(now())
+  board     Board          @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, seq])
+  @@map("board_events")
+}
