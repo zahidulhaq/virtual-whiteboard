@@ -12,7 +12,9 @@ const port = Number(process.env.LOCAL_DB_PORT ?? 5433)
 const inMemory = process.argv.includes('--memory')
 
 const db = await PGlite.create(inMemory ? undefined : './.pglite')
-const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1' })
+// Extra connections let tools like Prisma Studio attach alongside the API.
+// PGlite runs queries one at a time, so keep the API's pool size at 1.
+const server = new PGLiteSocketServer({ db, port, host: '127.0.0.1', maxConnections: 5 })
 await server.start()
 
 console.log(`Local database ready: postgresql://postgres:postgres@127.0.0.1:${port}/postgres`)
