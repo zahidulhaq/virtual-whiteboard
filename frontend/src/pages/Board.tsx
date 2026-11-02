@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { Canvas } from '../board/Canvas'
+import { PresenceBar } from '../board/PresenceBar'
+import { RemoteCursors } from '../board/RemoteCursors'
 import { Toolbar } from '../board/Toolbar'
 import { TOOLS, type Tool } from '../board/tools'
 import { useBoardSession, type SessionStatus } from '../board/useBoardSession'
@@ -21,7 +23,7 @@ const statusLabel: Record<SessionStatus, { text: string; dot: string }> = {
 
 export default function Board() {
   const { id: boardId = '' } = useParams<{ id: string }>()
-  const { token } = useAuth()
+  const { token, user } = useAuth()
   const navigate = useNavigate()
   const stageRef = useRef<Konva.Stage | null>(null)
 
@@ -124,6 +126,8 @@ export default function Board() {
         onCommit={commit}
         onErase={erase}
         onDraft={session.sendDraft}
+        onPointerMove={session.sendCursor}
+        overlay={<RemoteCursors cursors={Object.values(session.cursors)} scale={view.scale} />}
       />
 
       <header className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
@@ -146,6 +150,10 @@ export default function Board() {
             <span className={`h-2 w-2 rounded-full ${status.dot}`} />
             {status.text}
           </span>
+        </div>
+
+        <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg">
+          <PresenceBar users={session.presence} selfId={user!.id} />
         </div>
       </header>
 

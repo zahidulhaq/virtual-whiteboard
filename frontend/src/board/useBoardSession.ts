@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { api, socketUrl } from '../lib/api'
 import { throttle } from '../lib/throttle'
-import type { BoardEvent, BoardEventInput, Role, Shape } from '../lib/types'
+import type { BoardEvent, BoardEventInput, PresenceUser, Role, Shape } from '../lib/types'
 import { buildShapes, mergeEvents } from './boardState'
 
 export type SessionStatus = 'connecting' | 'loading' | 'ready' | 'offline' | 'error'
@@ -20,6 +20,11 @@ interface PendingEvent {
   input: BoardEventInput
 }
 
+export interface RemoteCursor extends PresenceUser {
+  x: number
+  y: number
+}
+
 interface Options {
   boardId: string
   token: string
@@ -34,9 +39,12 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
   const [events, setEvents] = useState<BoardEvent[]>([])
   const [pending, setPending] = useState<PendingEvent[]>([])
   const [drafts, setDrafts] = useState<Record<string, Shape>>({})
+  const [presence, setPresence] = useState<PresenceUser[]>([])
+  const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({})
 
   const socketRef = useRef<Socket | null>(null)
   const draftSender = useRef<((shape: Shape | null) => void) | null>(null)
+  const cursorSender = useRef<((point: { x: number; y: number }) => void) | null>(null)
   const pendingId = useRef(0)
   const onAccessLostRef = useRef(onAccessLost)
   useEffect(() => {
@@ -48,6 +56,8 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
     socketRef.current = socket
     const sendDraft = throttle((shape: Shape | null) => socket.emit('board:draft', { boardId, shape }), 40)
     draftSender.current = sendDraft
+    const sendCursor = throttle((point: { x: number; y: number }) => socket.volatile.emit('cursor:move', { boardId, ...point }), 40)
+    cursorSender.current = sendCursor
 
     // Live events that arrive while the history is loading are buffered and merged afterwards.
     let loading = true
@@ -91,6 +101,22 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
       setDrafts((all) => (shape ? { ...all, [userId]: shape } : omit(all, userId)))
     })
 
+    socket.on('presence', (users: PresenceUser[]) => {
+      setPresence(users)
+      // Drop cursors and drafts of users who left.
+      const online = new Set(users.map((u) => u.userId))
+      setCursors((all) => Object.fromEntries(Object.entries(all).filter(([id]) => online.has(id))))
+      setDrafts((all) => Object.fromEntries(Object.entries(all).filter(([id]) => online.has(id))))
+    })
+
+    socket.on('cursor:move', (cursor: RemoteCursor) => {
+      setCursors((all) => ({ ...all, [cursor.userId]: cursor }))
+    })
+
+    socket.on('cursor:leave', ({ userId }: { userId: string }) => {
+      setCursors((all) => omit(all, userId))
+    })
+
     socket.on('board:role', ({ role }: { role: Role | null }) => {
       if (role) setRole(role)
       else onAccessLostRef.current('You were removed from this board')
@@ -98,7 +124,12 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
 
     socket.on('board:deleted', () => onAccessLostRef.current('This board was deleted by its owner'))
 
-    socket.on('disconnect', () => setStatus('offline'))
+    socket.on('disconnect', () => {
+      setStatus('offline')
+      setPresence([])
+      setCursors({})
+      setDrafts({})
+    })
 
     socket.on('connect_error', (err) => {
       setStatus('offline')
@@ -107,7 +138,9 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
 
     return () => {
       sendDraft.cancel()
+      sendCursor.cancel()
       draftSender.current = null
+      cursorSender.current = null
       socket.removeAllListeners()
       socket.close()
       socketRef.current = null
@@ -135,6 +168,7 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
   )
 
   const sendDraft = useCallback((shape: Shape | null) => draftSender.current?.(shape), [])
+  const sendCursor = useCallback((point: { x: number; y: number }) => cursorSender.current?.(point), [])
 
   const shapes = useMemo(() => buildShapes([...events, ...pending.map((p) => p.input)]), [events, pending])
 
@@ -146,7 +180,10 @@ export function useBoardSession({ boardId, token, onAccessLost }: Options) {
     events,
     shapes,
     drafts,
+    presence,
+    cursors,
     emitEvent,
     sendDraft,
+    sendCursor,
   }
 }
