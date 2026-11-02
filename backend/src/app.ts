@@ -5,6 +5,7 @@ import { env } from './config/env.js'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js'
 import { requestLogger } from './middleware/requestLogger.js'
 import { authRouter } from './routes/auth.js'
+import { boardsRouter } from './routes/boards.js'
 import { healthRouter } from './routes/health.js'
 
 export function createApp() {
@@ -19,6 +20,7 @@ export function createApp() {
 
   app.use(healthRouter)
   app.use('/api/auth', authRouter)
+  app.use('/api/boards', boardsRouter)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
