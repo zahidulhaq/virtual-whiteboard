@@ -7,6 +7,7 @@ import {
   updateMemberSchema,
 } from '../lib/validation.js'
 import { requireAuth } from '../middleware/auth.js'
+import { notifyBoardDeleted, notifyRoleChanged } from '../realtime/socket.js'
 import * as boards from '../services/boards.js'
 
 export const boardsRouter = Router()
@@ -38,17 +39,20 @@ boardsRouter.patch('/:boardId', async (req, res) => {
 
 boardsRouter.delete('/:boardId', async (req, res) => {
   await boards.deleteBoard(req.params.boardId, req.user!.id)
+  notifyBoardDeleted(req.params.boardId)
   res.status(204).end()
 })
 
 boardsRouter.patch('/:boardId/members/:userId', async (req, res) => {
   const { role } = updateMemberSchema.parse(req.body)
   const member = await boards.updateMemberRole(req.params.boardId, req.user!.id, req.params.userId, role)
+  notifyRoleChanged(req.params.boardId, req.params.userId, role)
   res.json({ member })
 })
 
 boardsRouter.delete('/:boardId/members/:userId', async (req, res) => {
   await boards.removeMember(req.params.boardId, req.user!.id, req.params.userId)
+  notifyRoleChanged(req.params.boardId, req.params.userId, null)
   res.status(204).end()
 })
 
