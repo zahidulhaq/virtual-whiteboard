@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/useAuth'
 import { Canvas } from '../board/Canvas'
+import { MembersPanel } from '../board/MembersPanel'
 import { PresenceBar } from '../board/PresenceBar'
 import { RemoteCursors } from '../board/RemoteCursors'
 import { Toolbar } from '../board/Toolbar'
@@ -34,6 +35,7 @@ export default function Board() {
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 })
   const [myShapes, setMyShapes] = useState<string[]>([])
   const [copied, setCopied] = useState(false)
+  const [panel, setPanel] = useState<'members' | null>(null)
 
   const onAccessLost = useCallback(
     (reason: string) => navigate('/dashboard', { replace: true, state: { notice: reason } }),
@@ -154,8 +156,27 @@ export default function Board() {
 
         <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-1.5 shadow-lg">
           <PresenceBar users={session.presence} selfId={user!.id} />
+          <button
+            onClick={() => setPanel((p) => (p === 'members' ? null : 'members'))}
+            aria-pressed={panel === 'members'}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 aria-pressed:bg-slate-100"
+          >
+            Share
+          </button>
         </div>
       </header>
+
+      {panel === 'members' && board && (
+        <div className="pointer-events-none absolute top-20 right-3">
+          <MembersPanel
+            board={{ ...board, role: role ?? board.role }}
+            selfId={user!.id}
+            online={session.presence}
+            onClose={() => setPanel(null)}
+            onBoardChange={setBoard}
+          />
+        </div>
+      )}
 
       <div className="pointer-events-none absolute top-20 left-3">
         <Toolbar
